@@ -118,6 +118,41 @@ static int usb_switch_csr(int fd, enum mode mode)
 	return err;
 }
 
+static int usb_switch_csr2(int fd, enum mode mode)
+{
+	int err = 0;
+	struct usbfs_disconnect disconnect;
+	char report[] = { 0x1 , 0x5 , 0x0 , 0x0 , 0x0 , 0x0 , 0x0 , 0x0 , 0x0 };
+	switch (mode) {
+	case HCI:
+		//send report as is
+		disconnect.interface = 0;
+		disconnect.flags = USBFS_DISCONNECT_EXCEPT_DRIVER;
+		strcpy(disconnect.driver, "usbfs");
+
+		if (ioctl(fd, USBFS_IOCTL_DISCONNECT, &disconnect) < 0) {
+			fprintf(stderr, "Can't claim interface: %s (%d)\n",
+						strerror(errno), errno);
+			return -1;
+		}
+
+		err = control_message(fd, USB_ENDPOINT_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+					USB_REQ_SET_CONFIGURATION, //Set_Report Request
+					0x01 | (0x03 << 8), //report id: 0x01, report type: feature (0x03)
+					0, //interface
+					report, sizeof(report), 5000);
+		//unable to detect EALREADY
+		break;
+	case HID:
+		// currently unknown what to do here
+		fprintf(stderr, "csr2: Switching to hid mode is not implemented\n");
+		return -1;
+		break;
+	}
+
+	return err;
+}
+
 static int hid_logitech_send_report(int fd, const char *buf, size_t size)
 {
 	struct hiddev_report_info rinfo;
@@ -257,7 +292,7 @@ static void usage(const char *error)
 	printf("Usage: hid2hci [options]\n"
 		"  --mode=       mode to switch to [hid|hci] (default hci)\n"
 		"  --devpath=    sys device path\n"
-		"  --method=     method to use to switch [csr|logitech-hid|dell]\n"
+		"  --method=     method to use to switch [csr|csr2|logitech-hid|dell]\n"
 		"  --help\n\n");
 }
 
@@ -310,6 +345,9 @@ int main(int argc, char *argv[])
 			if (!strcmp(optarg, "csr")) {
 				method = METHOD_CSR;
 				usb_switch = usb_switch_csr;
+			} else if (!strcmp(optarg, "csr2")) {
+				method = METHOD_CSR;
+				usb_switch = usb_switch_csr2;
 			} else if (!strcmp(optarg, "logitech-hid")) {
 				method = METHOD_LOGITECH_HID;
 			} else if (!strcmp(optarg, "dell")) {
